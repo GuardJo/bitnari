@@ -5,6 +5,8 @@ import pyupbit
 from dotenv import load_dotenv
 from openai import OpenAI
 
+import consts
+
 # 로그 설정
 logging.basicConfig(filename="bitnari.log", level=logging.INFO, format='%(asctime)s | %(levelname)s | %(message)s',
                     datefmt='%Y-%m-%d %H:%M:%S')
@@ -13,8 +15,8 @@ load_dotenv()
 
 
 # 업비트 30일봉 차트 조회
-def get_month_charts():
-    return pyupbit.get_ohlcv('KRW-BTC', count=30, interval='day')
+def get_month_charts(coin_ticker):
+    return pyupbit.get_ohlcv(coin_ticker, count=30, interval='day')
 
 
 def get_answer_of_trade_reason(df):
@@ -50,13 +52,30 @@ def get_answer_of_trade_reason(df):
     return response.choices[0].message.content
 
 
+# 현재 가격 조회
+def get_current_price(coin_ticker):
+    return pyupbit.get_current_price(coin_ticker)
+
+
 def main():
-    df = get_month_charts()
-    aiResult = get_answer_of_trade_reason(df)
+    coin_ticker = "KRW-BTC"
 
-    logging.info("Response from OpenAI : %s", aiResult)
+    chart_data = get_month_charts(coin_ticker)
+    ai_result = get_answer_of_trade_reason(chart_data)
 
-    jsonResult = json.loads(aiResult)
+    logging.info("Response from OpenAI : %s", ai_result)
+
+    json_result = json.loads(ai_result)
+    current_price = get_current_price(coin_ticker)
+
+    if json_result["decision"] == consts.BUY:
+        logging.info("Buy, current price = %s", current_price)
+    elif json_result["decision"] == consts.HOLD:
+        logging.info("Hold, current price = %s", current_price)
+    elif json_result["decision"] == consts.SELL:
+        logging.info("Sell, current price = %s", current_price)
+    else:
+        logging.info("No decision")
 
 
 main()

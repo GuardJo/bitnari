@@ -24,7 +24,12 @@ def get_daily_charts(coin_ticker):
     return pyupbit.get_ohlcv(coin_ticker, count=24, interval='minute60')
 
 
-def get_answer_of_trade_reason(ohlcv_month, ohlcv_daily):
+# 업비트 호가 데이터 조회
+def get_orderbook(coin_ticker):
+    return pyupbit.get_orderbook(coin_ticker)
+
+
+def get_answer_of_trade_reason(ohlcv_month, ohlcv_daily, orderbook_data):
     # OpenAI 비트코인 매매 의사 질의 요청
     client = OpenAI()
     response = client.chat.completions.create(
@@ -44,7 +49,7 @@ def get_answer_of_trade_reason(ohlcv_month, ohlcv_daily):
                 "content": [
                     {
                         "type": "text",
-                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin: {ohlcv_month.to_json()}\nOHLCV 60-minute data for the last 24 hours of the coin: {ohlcv_daily.to_json()}"
+                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin: {ohlcv_month.to_json()}\nOHLCV 60-minute data for the last 24 hours of the coin: {ohlcv_daily.to_json()}\nOrder Book: {json.dumps(orderbook_data)}"
                     }
                 ]
             }
@@ -67,7 +72,8 @@ def main():
 
     ohlcv_daily = get_month_charts(coin_ticker)
     ohlcv_month = get_daily_charts(coin_ticker)
-    ai_result = get_answer_of_trade_reason(ohlcv_month, ohlcv_daily)
+    orderbook_data = get_orderbook(coin_ticker)
+    ai_result = get_answer_of_trade_reason(ohlcv_month, ohlcv_daily, orderbook_data)
 
     logging.info("Response from OpenAI : %s", ai_result)
 

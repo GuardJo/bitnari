@@ -2,11 +2,12 @@ import json
 import logging
 
 import pyupbit
-import ta.volatility
+import ta
 from dotenv import load_dotenv
 from openai import OpenAI
 from pandas import DataFrame
 from ta.utils import dropna
+from ta.volatility import BollingerBands
 
 import consts
 
@@ -35,10 +36,23 @@ def get_orderbook(coin_ticker):
 # 보조지표 추가
 def add_indicators(df: DataFrame):
     # 볼린저 밴드
-    indicator_bb = ta.volatility.BollingerBands(close=df['close'], window=20, window_dev=2)
+    indicator_bb = BollingerBands(close=df['close'], window=20, window_dev=2)
     df['bb_bbm'] = indicator_bb.bollinger_mavg()
     df['bb_bbn'] = indicator_bb.bollinger_hband()
     df['bb_bbl'] = indicator_bb.bollinger_lband()
+
+    # RSI 지표
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+
+    # MACD 지표
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    df['macd_diff'] = macd.macd_diff()
+
+    # 이동평균선
+    df['sma_20'] = ta.trend.SMAIndicator(close=df['close'], window=20).sma_indicator()
+    df['ema_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
 
     return df
 
@@ -63,7 +77,7 @@ def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data):
                 "content": [
                     {
                         "type": "text",
-                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the coin's last 24 hours, including Bollinger Bands: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}"
+                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}"
                     }
                 ]
             }

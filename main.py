@@ -2,6 +2,7 @@ import json
 import logging
 
 import pyupbit
+import requests
 import ta
 from dotenv import load_dotenv
 from openai import OpenAI
@@ -57,7 +58,7 @@ def add_indicators(df: DataFrame):
     return df
 
 
-def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data):
+def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_greed_index_data):
     # OpenAI 비트코인 매매 의사 질의 요청
     client = OpenAI()
     response = client.chat.completions.create(
@@ -77,7 +78,7 @@ def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data):
                 "content": [
                     {
                         "type": "text",
-                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}"
+                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}\nFear and Greed Index Data: {json.dumps(fear_greed_index_data)}"
                     }
                 ]
             }
@@ -95,6 +96,18 @@ def get_current_price(coin_ticker):
     return pyupbit.get_current_price(coin_ticker)
 
 
+# 공포탐욕지수 조회
+def get_fear_greed_index():
+    api_url = 'https://api.alternative.me/fng'
+    response = requests.get(api_url)
+
+    if (response.status_code == 200):
+        data = response.json()
+        return data['data'][0]
+    else:
+        return None
+
+
 def main():
     coin_ticker = "KRW-BTC"
 
@@ -107,7 +120,9 @@ def main():
     ohlcv_hours = add_indicators(ohlcv_hours)
     orderbook_data = get_orderbook(coin_ticker)
 
-    ai_result = get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data)
+    fear_and_greed_index = get_fear_greed_index()
+
+    ai_result = get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_and_greed_index)
 
     logging.info("Response from OpenAI : %s", ai_result)
 

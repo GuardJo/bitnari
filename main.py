@@ -1,9 +1,15 @@
 import json
 import logging
+import os
 
 import pyupbit
+import requests
+import ta
 from dotenv import load_dotenv
 from openai import OpenAI
+from pandas import DataFrame
+from ta.utils import dropna
+from ta.volatility import BollingerBands
 
 import consts
 
@@ -15,11 +21,45 @@ load_dotenv()
 
 
 # 업비트 30일봉 차트 조회
-def get_month_charts(coin_ticker):
+def get_daily_charts(coin_ticker):
     return pyupbit.get_ohlcv(coin_ticker, count=30, interval='day')
 
 
-def get_answer_of_trade_reason(df):
+# 업비트 24시간 거래 데이터 조회
+def get_hours_charts(coin_ticker):
+    return pyupbit.get_ohlcv(coin_ticker, count=24, interval='minute60')
+
+
+# 업비트 호가 데이터 조회
+def get_orderbook(coin_ticker):
+    return pyupbit.get_orderbook(coin_ticker)
+
+
+# 보조지표 추가
+def add_indicators(df: DataFrame):
+    # 볼린저 밴드
+    indicator_bb = BollingerBands(close=df['close'], window=20, window_dev=2)
+    df['bb_bbm'] = indicator_bb.bollinger_mavg()
+    df['bb_bbn'] = indicator_bb.bollinger_hband()
+    df['bb_bbl'] = indicator_bb.bollinger_lband()
+
+    # RSI 지표
+    df['rsi'] = ta.momentum.RSIIndicator(close=df['close'], window=14).rsi()
+
+    # MACD 지표
+    macd = ta.trend.MACD(close=df['close'])
+    df['macd'] = macd.macd()
+    df['macd_signal'] = macd.macd_signal()
+    df['macd_diff'] = macd.macd_diff()
+
+    # 이동평균선
+    df['sma_20'] = ta.trend.SMAIndicator(close=df['close'], window=20).sma_indicator()
+    df['ema_12'] = ta.trend.EMAIndicator(close=df['close'], window=12).ema_indicator()
+
+    return df
+
+
+def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_greed_index_data, news_data):
     # OpenAI 비트코인 매매 의사 질의 요청
     client = OpenAI()
     response = client.chat.completions.create(
@@ -39,7 +79,7 @@ def get_answer_of_trade_reason(df):
                 "content": [
                     {
                         "type": "text",
-                        "text": df.to_json()
+                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}\nFear and Greed Index Data: {json.dumps(fear_greed_index_data)}\nTop 5 Coin News: {news_data}"
                     }
                 ]
             }
@@ -57,11 +97,60 @@ def get_current_price(coin_ticker):
     return pyupbit.get_current_price(coin_ticker)
 
 
+# 공포탐욕지수 조회
+def get_fear_greed_index():
+    api_url = 'https://api.alternative.me/fng'
+    response = requests.get(api_url)
+
+    if (response.status_code == 200):
+        data = response.json()
+        return data['data'][0]
+    else:
+        return None
+
+
+# 코인 관련 뉴스 조회
+def get_google_news_data(search_query):
+    try:
+        serp_api_key = os.getenv('SERP_API_KEY')
+        serp_search_api_url = f'https://serpapi.com/search?engine=google_news&q={search_query}&api_key={serp_api_key}'
+        response = requests.get(serp_search_api_url)
+        response.raise_for_status()
+        data = response.json()
+
+        new_results = data.get('news_results', [])
+        headlines = []
+
+        for news in new_results:
+            headlines.append({
+                'title': news.get('title'),
+                'date': news.get('date'),
+            })
+
+        return headlines[:5]
+    except requests.exceptions.RequestException as e:
+        logging.error(e)
+        return []
+
+
 def main():
     coin_ticker = "KRW-BTC"
+    new_search_query = 'BTC'
 
-    chart_data = get_month_charts(coin_ticker)
-    ai_result = get_answer_of_trade_reason(chart_data)
+    ohlcv_daily = get_daily_charts(coin_ticker)
+    ohlcv_daily = dropna(ohlcv_daily)
+    ohlcv_daily = add_indicators(ohlcv_daily)
+
+    ohlcv_hours = get_hours_charts(coin_ticker)
+    ohlcv_hours = dropna(ohlcv_hours)
+    ohlcv_hours = add_indicators(ohlcv_hours)
+    orderbook_data = get_orderbook(coin_ticker)
+
+    fear_and_greed_index = get_fear_greed_index()
+
+    news_data = get_google_news_data(new_search_query)
+
+    ai_result = get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_and_greed_index, news_data)
 
     logging.info("Response from OpenAI : %s", ai_result)
 

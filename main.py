@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 
 import pyupbit
 import requests
@@ -58,7 +59,7 @@ def add_indicators(df: DataFrame):
     return df
 
 
-def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_greed_index_data):
+def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_greed_index_data, news_data):
     # OpenAI 비트코인 매매 의사 질의 요청
     client = OpenAI()
     response = client.chat.completions.create(
@@ -78,7 +79,7 @@ def get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_gr
                 "content": [
                     {
                         "type": "text",
-                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}\nFear and Greed Index Data: {json.dumps(fear_greed_index_data)}"
+                        "text": f"I'll give you the following data as input between coin buying and selling opinions\nOHLCV daily data for the last 30 days of the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_daily.to_json()}\nOHLCV 60-minute data for the last 24 hours for the coin, including Bollinger Bands, RSI indicator, MACD indicator, and moving average lines: {ohlcv_hours.to_json()}\nOrder Book: {json.dumps(orderbook_data)}\nFear and Greed Index Data: {json.dumps(fear_greed_index_data)}\nTop 5 Coin News: {news_data}"
                     }
                 ]
             }
@@ -108,8 +109,33 @@ def get_fear_greed_index():
         return None
 
 
+# 코인 관련 뉴스 조회
+def get_google_news_data(search_query):
+    try:
+        serp_api_key = os.getenv('SERP_API_KEY')
+        serp_search_api_url = f'https://serpapi.com/search?engine=google_news&q={search_query}&api_key={serp_api_key}'
+        response = requests.get(serp_search_api_url)
+        response.raise_for_status()
+        data = response.json()
+
+        new_results = data.get('news_results', [])
+        headlines = []
+
+        for news in new_results:
+            headlines.append({
+                'title': news.get('title'),
+                'date': news.get('date'),
+            })
+
+        return headlines[:5]
+    except requests.exceptions.RequestException as e:
+        logging.error(e)
+        return []
+
+
 def main():
     coin_ticker = "KRW-BTC"
+    new_search_query = 'BTC'
 
     ohlcv_daily = get_daily_charts(coin_ticker)
     ohlcv_daily = dropna(ohlcv_daily)
@@ -122,7 +148,9 @@ def main():
 
     fear_and_greed_index = get_fear_greed_index()
 
-    ai_result = get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_and_greed_index)
+    news_data = get_google_news_data(new_search_query)
+
+    ai_result = get_answer_of_trade_reason(ohlcv_daily, ohlcv_hours, orderbook_data, fear_and_greed_index, news_data)
 
     logging.info("Response from OpenAI : %s", ai_result)
 
